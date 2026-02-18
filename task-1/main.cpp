@@ -17,8 +17,8 @@ int main(){
     real_t sum = 0;
 
     for (std::size_t i = 0; i < N; ++i){
-        real_t value = std::sin(two_pi * static_cast<real_t>(i) / static_cast<real_t>(N));
-        sum += value;
+        data[i] = std::sin(two_pi * static_cast<real_t>(i) / static_cast<real_t>(N));
+        sum += data[i];
     }
 
     std::cout << "Type: "
