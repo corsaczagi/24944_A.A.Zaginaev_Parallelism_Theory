@@ -18,7 +18,6 @@ int main(){
 
     for (std::size_t i = 0; i < N; ++i){
         real_t value = std::sin(two_pi * static_cast<real_t>(i) / static_cast<real_t>(N));
-        data[i] = value;
         sum += value;
     }
 
