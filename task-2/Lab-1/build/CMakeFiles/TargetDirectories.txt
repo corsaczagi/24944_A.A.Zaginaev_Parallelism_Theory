@@ -1,3 +1,0 @@
-/home/absent/Документы/Parallelism_Theory/task-2/Lab-1/build/CMakeFiles/matrix_vector_mult.dir
-/home/absent/Документы/Parallelism_Theory/task-2/Lab-1/build/CMakeFiles/edit_cache.dir
-/home/absent/Документы/Parallelism_Theory/task-2/Lab-1/build/CMakeFiles/rebuild_cache.dir
