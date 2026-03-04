@@ -1,0 +1,1 @@
+/usr/bin/c++ "CMakeFiles/matrix_vector_mult.dir/main-1.cpp.o" -o matrix_vector_mult  -lpthread 
