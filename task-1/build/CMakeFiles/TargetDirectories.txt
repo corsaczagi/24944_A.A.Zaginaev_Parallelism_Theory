@@ -1,3 +1,0 @@
-/home/absent/Документы/Parallelism_Theory/task-1/build/CMakeFiles/sin_sum.dir
-/home/absent/Документы/Parallelism_Theory/task-1/build/CMakeFiles/edit_cache.dir
-/home/absent/Документы/Parallelism_Theory/task-1/build/CMakeFiles/rebuild_cache.dir
