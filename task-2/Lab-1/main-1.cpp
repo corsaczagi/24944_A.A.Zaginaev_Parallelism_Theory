@@ -1,148 +1,124 @@
 #include <iostream>
-#include <vector>
-#include <thread>
-#include <chrono>
+#include <omp.h>
 #include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <cstdlib>
 
 using namespace std;
-using namespace chrono;
 
-class Timer {
-    high_resolution_clock::time_point start;
-public:
-    Timer() { reset(); }
-    void reset() { start = high_resolution_clock::now(); }
-    double elapsed() { 
-        return duration_cast<milliseconds>(high_resolution_clock::now() - start).count() / 1000.0;
-    }
-};
-
-void fill_matrix_row(double* row, int n, int row_idx) {
-    for (int j = 0; j < n; j++) {
-        row[j] = sin(row_idx * 0.001) * cos(j * 0.001);
-    }
-}
-
-void fill_matrix_part(double* A, int n, int start_row, int end_row) {
-    for (int i = start_row; i < end_row; ++i) {
-        fill_matrix_row(A + (long long)i * n, n, i);
-    }
-}
-
-void fill_vector_part(double* vec, int start, int end) {
-    for (int i = start; i < end; ++i) {
-        vec[i] = exp(i * 0.0001);
-    }
-}
-
-void mult_part(const double* A, const double* x, double* y, int n, int start, int end) {
-    for (int i = start; i < end; i++) {
-        double sum = 0;
-        const double* row = A + (long long)i * n;
-        for (int j = 0; j < n; j++) {
-            sum += row[j] * x[j];
+void init_matrix_omp(double* A, int n) {
+    #pragma omp parallel
+    {
+        int nthreads = omp_get_num_threads();
+        int threadid = omp_get_thread_num();
+        int rows_per_thread = n / nthreads;
+        int start = threadid * rows_per_thread;
+        int end = (threadid == nthreads - 1) ? n : (threadid + 1) * rows_per_thread;
+        
+        for (int i = start; i < end; i++) {
+            for (int j = 0; j < n; j++) {
+                A[i * n + j] = sin(i * 0.001) * cos(j * 0.001);
+            }
         }
-        y[i] = sum;
     }
 }
 
-int main(){
-    
-    cout << "\nИнформация о вычислительном узле:\n";
+void init_vector_omp(double* x, int n) {
+    #pragma omp parallel
+    {
+        int nthreads = omp_get_num_threads();
+        int threadid = omp_get_thread_num();
+        int elems_per_thread = n / nthreads;
+        int start = threadid * elems_per_thread;
+        int end = (threadid == nthreads - 1) ? n : (threadid + 1) * elems_per_thread;
+        
+        for (int i = start; i < end; i++) {
+            x[i] = exp(i * 0.0001);
+        }
+    }
+}
+
+void matrix_vector_mult_omp(const double* A, const double* x, double* y, int n) {
+    #pragma omp parallel
+    {
+        int nthreads = omp_get_num_threads();
+        int threadid = omp_get_thread_num();
+        int rows_per_thread = n / nthreads;
+        int start = threadid * rows_per_thread;
+        int end = (threadid == nthreads - 1) ? n : (threadid + 1) * rows_per_thread;
+        
+        for (int i = start; i < end; i++) {
+            double sum = 0.0;
+            for (int j = 0; j < n; j++) {
+                sum += A[i * n + j] * x[j];
+            }
+            y[i] = sum;
+        }
+    }
+}
+
+void print_system_info() {
     system("lscpu | grep -E 'Model name|CPU\\(s\\)|Thread\\(s\\) per core|Core\\(s\\) per socket|Socket\\(s\\)|L3 cache'");
-    cout << "\nМодель сервера:\n";
     system("cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || echo 'Недоступно'");
-    cout << "\nNUMA ноды:\n";
     system("numactl --hardware 2>/dev/null | grep -A 10 'available' || echo 'numactl не установлен'");
-    cout << "\nОперативная память:\n";
     system("free -h | grep Mem");
-    cout << "\nОперационная система:\n";
     system("cat /etc/os-release | grep -E 'PRETTY_NAME|VERSION' | head -2");
+}
+
+int main() {
+    print_system_info();
     
-    vector<int> sizes = {20000, 40000};
-    vector<int> threads_list = {1, 2, 4, 7, 8, 16, 20, 40};
+    int sizes[] = {20000, 40000};
+    int threads_list[] = {1, 2, 4, 7, 8, 16, 20, 40};
+    int num_sizes = 2;
+    int num_threads_list = 8;
     
     ofstream data_file("benchmark_data.txt");
     if (!data_file.is_open()) {
-        cerr << "Ошибка: не удалось создать файл benchmark_data.txt\n";
         return 1;
     }
     
-    // Число потоков для инициализации 
-    const int init_threads_count = 4;
+    data_file << "# размер_матрицы потоки время(с) ускорение\n";
     
-    for (int size : sizes){
-        cout << "\nРазмер матрицы: " << size << "x" << size << "\n";
+    for (int s = 0; s < num_sizes; s++) {
+        int n = sizes[s];
         
-        double* A = new double[(long long)size * size];
-        double* x = new double[size];
-        double* y = new double[size];
+        double* A = new double[(long long)n * n];
+        double* x = new double[n];
+        double* y = new double[n];
         
-        // Параллельная инициализация матрицы
-        cout << "  Генерация матрицы (параллельно, " << init_threads_count << " потока)..." << flush;
-        {
-            vector<thread> init_threads;
-            int rows_per_thread = size / init_threads_count;
-            for (int t = 0; t < init_threads_count; ++t) {
-                int start = t * rows_per_thread;
-                int end = (t == init_threads_count-1) ? size : (t+1) * rows_per_thread;
-                init_threads.emplace_back(fill_matrix_part, A, size, start, end);
-            }
-            for (auto& th : init_threads) th.join();
-        }
-        cout << "готово\n";
+        omp_set_num_threads(4);
+        init_matrix_omp(A, n);
+        init_vector_omp(x, n);
         
-        // Параллельная инициализация вектора (разобьём на те же части)
-        cout << "  Генерация вектора (параллельно)..." << flush;
-        {
-            vector<thread> init_threads;
-            int elems_per_thread = size / init_threads_count;
-            for (int t = 0; t < init_threads_count; ++t) {
-                int start = t * elems_per_thread;
-                int end = (t == init_threads_count-1) ? size : (t+1) * elems_per_thread;
-                init_threads.emplace_back(fill_vector_part, x, start, end);
-            }
-            for (auto& th : init_threads) th.join();
-        }
-        cout << "готово\n";
+        double base_time = 0.0;
         
-        double base_time = 0;
-        
-        for (int threads : threads_list) {
-            cout << "  Потоков " <<  threads << ": " << flush;
+        for (int t = 0; t < num_threads_list; t++) {
+            int threads = threads_list[t];
             
-            double total_time = 0;
+            double total_time = 0.0;
             const int iterations = 3;
             
             for (int iter = 0; iter < iterations; iter++) {
-                Timer timer;
+                omp_set_num_threads(threads);
                 
-                vector<thread> workers;
-                int rows_per_thread = size / threads;
+                double start = omp_get_wtime();
+                matrix_vector_mult_omp(A, x, y, n);
+                double end = omp_get_wtime();
                 
-                for (int t = 0; t < threads; t++) {
-                    int start = t * rows_per_thread;
-                    int end = (t == threads-1) ? size : (t+1) * rows_per_thread;
-                    workers.emplace_back(mult_part, A, x, y, size, start, end);
-                }
-                
-                for (auto& w : workers) w.join();
-                
-                total_time += timer.elapsed();
+                total_time += (end - start);
             }
             
             double avg_time = total_time / iterations;
             
-            if (threads == 1) base_time = avg_time;
+            if (threads == 1) {
+                base_time = avg_time;
+            }
+            
             double speedup = base_time / avg_time;
             
-            cout << fixed << setprecision(2) << avg_time << " с, "
-                 << "ускорение " << setprecision(2) << speedup << endl;
-            
-            data_file << size << " " << threads << " "
+            data_file << n << " " << threads << " "
                      << avg_time << " " << speedup << "\n";
         }
         
@@ -152,6 +128,6 @@ int main(){
     }
     
     data_file.close();
-    cout << "\nДанные сохранены в файл: benchmark_data.txt\n";
+    
     return 0;
 }
