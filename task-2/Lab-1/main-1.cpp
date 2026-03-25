@@ -58,16 +58,12 @@ void matrix_vector_mult_omp(const double* A, const double* x, double* y, int n) 
     }
 }
 
-void print_system_info() {
+int main() {
     system("lscpu | grep -E 'Model name|CPU\\(s\\)|Thread\\(s\\) per core|Core\\(s\\) per socket|Socket\\(s\\)|L3 cache'");
     system("cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || echo 'Недоступно'");
     system("numactl --hardware 2>/dev/null | grep -A 10 'available' || echo 'numactl не установлен'");
     system("free -h | grep Mem");
     system("cat /etc/os-release | grep -E 'PRETTY_NAME|VERSION' | head -2");
-}
-
-int main() {
-    print_system_info();
     
     int sizes[] = {20000, 40000};
     int threads_list[] = {1, 2, 4, 7, 8, 16, 20, 40};
