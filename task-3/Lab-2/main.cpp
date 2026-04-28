@@ -70,7 +70,9 @@ private:
     
 public:
     void start() {
-        worker_thread_ = std::jthread(&Server::worker_loop, this);
+        worker_thread_ = std::jthread([this](std::stop_token stoken) {
+        worker_loop(stoken);
+        });
     }
     
     void stop() {
