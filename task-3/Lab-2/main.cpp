@@ -8,14 +8,15 @@
 #include <random>
 #include <cmath>
 #include <fstream>
-#include <chrono>
 #include <vector>
 #include <atomic>
+#include <iomanip>
 
 template<typename T>
 class Server {
 private:
     using TaskFunc = std::function<T()>;
+    
     struct TaskItem {
         uint64_t id;
         std::packaged_task<T()> task;
@@ -46,18 +47,14 @@ private:
             cv_.wait(lock, [this, &stop_token] {
                 return !task_queue_.empty() || stop_token.stop_requested();
             });
-            
             if (stop_token.stop_requested() && task_queue_.empty()) break;
-            
             if (!task_queue_.empty()) {
                 TaskItem item = std::move(task_queue_.front());
                 task_queue_.pop();
                 lock.unlock();
-                
                 std::future<T> future = item.task.get_future();
                 item.task();
                 T result = future.get();
-                
                 {
                     std::lock_guard<std::mutex> res_lock(results_mutex_);
                     results_[item.id] = result;
@@ -71,7 +68,7 @@ private:
 public:
     void start() {
         worker_thread_ = std::jthread([this](std::stop_token stoken) {
-        worker_loop(stoken);
+            worker_loop(stoken);
         });
     }
     
@@ -124,38 +121,33 @@ public:
         std::uniform_int_distribution<int> int_dist(2, 7);
         
         for (int i = 0; i < num_tasks; ++i) {
-            uint64_t task_id;
-            
             if (task_type_ == "sin") {
                 double arg = dist(gen);
                 args_single_.push_back(arg);
-                task_id = server.add_task([arg]() { return std::sin(arg); });
+                task_ids_.push_back(server.add_task([arg]() { return std::sin(arg); }));
             }
             else if (task_type_ == "sqrt") {
                 double arg = dist(gen);
                 args_single_.push_back(arg);
-                task_id = server.add_task([arg]() { return std::sqrt(arg); });
+                task_ids_.push_back(server.add_task([arg]() { return std::sqrt(arg); }));
             }
             else {
                 double base = dist(gen);
                 int exp = int_dist(gen);
                 args_pow_.push_back({base, exp});
-                task_id = server.add_task([base, exp]() { return std::pow(base, exp); });
+                task_ids_.push_back(server.add_task([base, exp]() { return std::pow(base, exp); }));
             }
-            task_ids_.push_back(task_id);
         }
         
         for (size_t i = 0; i < task_ids_.size(); ++i) {
-            double result = server.request_result(task_ids_[i]);
-            results_.push_back(result);
+            results_.push_back(server.request_result(task_ids_[i]));
         }
     }
     
     void save_results() const {
-        std::string filename = "client_" + std::to_string(client_id_) + 
-                               "_" + task_type_ + ".txt";
+        std::string filename = "client_" + std::to_string(client_id_) + "_" + task_type_ + ".txt";
         std::ofstream file(filename);
-        
+        file << std::fixed << std::setprecision(10);
         for (size_t i = 0; i < results_.size(); ++i) {
             if (task_type_ == "sin") {
                 file << "sin(" << args_single_[i] << ") = " << results_[i] << "\n";
@@ -164,36 +156,27 @@ public:
                 file << "sqrt(" << args_single_[i] << ") = " << results_[i] << "\n";
             }
             else {
-                file << "pow(" << args_pow_[i].first << ", " << args_pow_[i].second 
-                     << ") = " << results_[i] << "\n";
+                file << "pow(" << args_pow_[i].first << ", " << args_pow_[i].second << ") = " << results_[i] << "\n";
             }
         }
-        file.close();
     }
 };
-
-int generate_task_count() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dist(6, 9999);
-    return dist(gen);
-}
 
 int main() {
     Server<double> server;
     server.start();
     
-    int num1 = generate_task_count();
-    int num2 = generate_task_count();
-    int num3 = generate_task_count();
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> dist(6, 9999);
     
     Client client1(1, "sin");
     Client client2(2, "sqrt");
     Client client3(3, "power");
     
-    std::jthread t1([&]() { client1.run(server, num1); });
-    std::jthread t2([&]() { client2.run(server, num2); });
-    std::jthread t3([&]() { client3.run(server, num3); });
+    std::jthread t1([&]() { client1.run(server, dist(gen)); });
+    std::jthread t2([&]() { client2.run(server, dist(gen)); });
+    std::jthread t3([&]() { client3.run(server, dist(gen)); });
     
     t1.join();
     t2.join();
