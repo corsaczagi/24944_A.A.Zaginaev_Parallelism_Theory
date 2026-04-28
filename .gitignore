@@ -4,5 +4,16 @@ build/
 */build/
 */*/build/
 */*/*/build/
+**/test-task/
+test-task/
+/test-task/
+*/test-task/
+*/*/test-task/
+*/*/*/test-task/
 seminars/
 .vscode/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp

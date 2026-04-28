@@ -1,315 +1,347 @@
 #include <iostream>
-#include <fstream>
-#include <cmath>
-#include <omp.h>
+#include <iomanip>
 #include <vector>
+#include <cmath>
+#include <ctime>
+#include <cstdlib>
+#include <fstream>  
+#include <omp.h>
 
-using namespace std;
+#ifndef N_SIZE
+#define N_SIZE 2000
+#endif
 
-// Функция для умножения матрицы на вектор
-void matvec(const vector<double>& A, const vector<double>& x, 
-            vector<double>& Ax, int N) {
-    for (int i = 0; i < N; i++) {
-        double sum = 0.0;
-        for (int j = 0; j < N; j++) {
-            sum += A[i * N + j] * x[j];
-        }
-        Ax[i] = sum;
-    }
+#ifndef NUM_THREADS
+#define NUM_THREADS 8
+#endif
+
+#ifndef MAX_ITER
+#define MAX_ITER 10000
+#endif
+
+#ifndef EPS
+#define EPS 1e-6
+#endif
+
+double get_wall_time() {
+    struct timespec time_spec;
+    timespec_get(&time_spec, TIME_UTC);
+    return static_cast<double>(time_spec.tv_sec) + static_cast<double>(time_spec.tv_nsec) * 1e-9;
 }
 
-// Вариант 1: #pragma omp parallel for для каждого цикла
-double solve_iterative_parallel_v1(const vector<double>& A, const vector<double>& b,
-                                     vector<double>& x, int N, double tau, 
-                                     double eps, int max_iter, double& exec_time) {
-    vector<double> Ax(N, 0.0);
-    vector<double> x_new(N, 0.0);
-    double diff = 0.0;
-    int iter = 0;
+void solve_serial(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                  std::vector<double>& sol, int dim, double rhs_norm) {
+    const double param_tau = 0.8 / (dim + 1);
+    int step = 0;
+    double current_residual = 1.0;
     
-    double start = omp_get_wtime();
-    
-    for (iter = 0; iter < max_iter; iter++) {
-        // Вычисляем Ax
-        #pragma omp parallel for
-        for (int i = 0; i < N; i++) {
-            double sum = 0.0;
-            for (int j = 0; j < N; j++) {
-                sum += A[i * N + j] * x[j];
+    while (step < MAX_ITER && (current_residual / rhs_norm) > EPS) {
+        current_residual = 0.0;
+        for (int i = 0; i < dim; ++i) {
+            double mx = 0.0;
+            for (int j = 0; j < dim; ++j) {
+                mx += matrix[i * dim + j] * sol[j];
             }
-            Ax[i] = sum;
+            double diff = rhs[i] - mx;
+            sol[i] += param_tau * diff;
+            current_residual += diff * diff;
         }
-        
-        double local_diff = 0.0;
-        
-        #pragma omp parallel for reduction(max:local_diff)
-        for (int i = 0; i < N; i++) {
-            x_new[i] = x[i] - tau * (Ax[i] - b[i]);
-            double d = fabs(x_new[i] - x[i]);
-            if (d > local_diff) local_diff = d;
-        }
-        
-        #pragma omp parallel for
-        for (int i = 0; i < N; i++) {
-            x[i] = x_new[i];
-        }
-        
-        diff = local_diff;
-        if (diff < eps) break;
+        current_residual = std::sqrt(current_residual);
+        step++;
     }
-    
-    double end = omp_get_wtime();
-    exec_time = end - start;
-    
-    return diff;
+    std::cout << "[Serial] " << step << " iterations, rel_norm = " 
+              << std::scientific << (current_residual / rhs_norm) << "\n";
 }
 
-// Вариант 2: одна #pragma omp parallel охватывает весь алгоритм
-double solve_iterative_parallel_v2(const vector<double>& A, const vector<double>& b,
-                                     vector<double>& x, int N, double tau, 
-                                     double eps, int max_iter, double& exec_time) {
-    vector<double> Ax(N, 0.0);
-    vector<double> x_new(N, 0.0);
-    double diff = 0.0;
-    int iter = 0;
+double test_serial(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                   int dim, double rhs_norm) {
+    std::vector<double> sol(dim, 0.0);
     
-    double start = omp_get_wtime();
+    double start_time = get_wall_time();
+    solve_serial(matrix, rhs, sol, dim, rhs_norm);
+    double end_time = get_wall_time() - start_time;
     
-    #pragma omp parallel
-    {
-        for (iter = 0; iter < max_iter; iter++) {
-            #pragma omp for
-            for (int i = 0; i < N; i++) {
-                double sum = 0.0;
-                for (int j = 0; j < N; j++) {
-                    sum += A[i * N + j] * x[j];
+    double max_err = 0.0;
+    for (int i = 0; i < dim; ++i) {
+        double err = std::fabs(sol[i] - 1.0);
+        if (err > max_err) max_err = err;
+    }
+    
+    std::cout << "  Time: " << std::fixed << std::setprecision(6) << end_time << " s\n";
+    std::cout << "  Max error: " << std::scientific << max_err << "\n\n";
+    
+    return end_time;
+}
+
+void solve_omp_split(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                     std::vector<double>& sol, int dim, double rhs_norm) {
+    const double param_tau = 0.8 / (dim + 1);
+    int step = 0;
+    double current_residual = 1.0;
+    
+    while (step < MAX_ITER && (current_residual / rhs_norm) > EPS) {
+        #pragma omp parallel for
+        for (int i = 0; i < dim; ++i) {
+            double mx = 0.0;
+            for (int j = 0; j < dim; ++j) {
+                mx += matrix[i * dim + j] * sol[j];
+            }
+            double diff = rhs[i] - mx;
+            sol[i] += param_tau * diff;
+        }
+        
+        double local_norm = 0.0;
+        #pragma omp parallel for reduction(+:local_norm)
+        for (int i = 0; i < dim; ++i) {
+            double mx = 0.0;
+            for (int j = 0; j < dim; ++j) {
+                mx += matrix[i * dim + j] * sol[j];
+            }
+            double diff = rhs[i] - mx;
+            local_norm += diff * diff;
+        }
+        
+        current_residual = std::sqrt(local_norm);
+        step++;
+    }
+    std::cout << "[OMP Split] " << step << " iterations, rel_norm = " 
+              << std::scientific << (current_residual / rhs_norm) << "\n";
+}
+
+double test_omp_split(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                      int dim, double rhs_norm) {
+    std::vector<double> sol(dim, 0.0);
+    
+    double start_time = get_wall_time();
+    solve_omp_split(matrix, rhs, sol, dim, rhs_norm);
+    double end_time = get_wall_time() - start_time;
+    
+    double max_err = 0.0;
+    for (int i = 0; i < dim; ++i) {
+        double err = std::fabs(sol[i] - 1.0);
+        if (err > max_err) max_err = err;
+    }
+    
+    std::cout << "  Time: " << std::fixed << std::setprecision(6) << end_time << " s\n";
+    std::cout << "  Max error: " << std::scientific << max_err << "\n\n";
+    
+    return end_time;
+}
+
+void solve_omp_single_region(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                             std::vector<double>& sol, int dim, double rhs_norm) {
+    const double param_tau = 0.8 / (dim + 1);
+    int step = 0;
+    double current_residual = 1.0;
+    
+    while (step < MAX_ITER && (current_residual / rhs_norm) > EPS) {
+        current_residual = 0.0;
+        
+        #pragma omp parallel
+        {
+            int t_count = omp_get_num_threads();
+            int t_id = omp_get_thread_num();
+            int chunk_size = dim / t_count;
+            int start_idx = t_id * chunk_size;
+            int end_idx = (t_id == t_count - 1) ? (dim - 1) : (start_idx + chunk_size - 1);
+            
+            double local_norm = 0.0;
+            
+            for (int i = start_idx; i <= end_idx; ++i) {
+                double mx = 0.0;
+                for (int j = 0; j < dim; ++j) {
+                    mx += matrix[i * dim + j] * sol[j];
                 }
-                Ax[i] = sum;
+                double diff = rhs[i] - mx;
+                sol[i] += param_tau * diff;
+                local_norm += diff * diff;
             }
             
-            double local_diff = 0.0;  
-            
-            #pragma omp for
-            for (int i = 0; i < N; i++) {
-                x_new[i] = x[i] - tau * (Ax[i] - b[i]);
-                double d = fabs(x_new[i] - x[i]);
-                if (d > local_diff) local_diff = d;
-            }
-            
-            #pragma omp for
-            for (int i = 0; i < N; i++) {
-                x[i] = x_new[i];
-            }
-            
-            #pragma omp critical
-            {
-                if (local_diff > diff) diff = local_diff;
-            }
-            
-            #pragma omp barrier
-            #pragma omp single
-            {
-                if (diff < eps) iter = max_iter;  
-            }
+            #pragma omp atomic
+            current_residual += local_norm;
         }
+        
+        current_residual = std::sqrt(current_residual);
+        step++;
     }
-    
-    double end = omp_get_wtime();
-    exec_time = end - start;
-    
-    return diff;
+    std::cout << "[OMP Single] " << step << " iterations, rel_norm = " 
+              << std::scientific << (current_residual / rhs_norm) << "\n";
 }
 
-// Последовательная версия для сравнения
-double solve_iterative_serial(const vector<double>& A, const vector<double>& b,
-                               vector<double>& x, int N, double tau, 
-                               double eps, int max_iter, double& exec_time) {
-    vector<double> Ax(N, 0.0);
-    vector<double> x_new(N, 0.0);
-    double diff = 0.0;
-    int iter = 0;
+double test_omp_single_region(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                              int dim, double rhs_norm) {
+    std::vector<double> sol(dim, 0.0);
     
-    double start = omp_get_wtime();
+    double start_time = get_wall_time();
+    solve_omp_single_region(matrix, rhs, sol, dim, rhs_norm);
+    double end_time = get_wall_time() - start_time;
     
-    for (iter = 0; iter < max_iter; iter++) {
-        for (int i = 0; i < N; i++) {
-            double sum = 0.0;
-            for (int j = 0; j < N; j++) {
-                sum += A[i * N + j] * x[j];
-            }
-            Ax[i] = sum;
-        }
-        
-        diff = 0.0;
-        for (int i = 0; i < N; i++) {
-            x_new[i] = x[i] - tau * (Ax[i] - b[i]);
-            double d = fabs(x_new[i] - x[i]);
-            if (d > diff) diff = d;
-        }
-        
-        for (int i = 0; i < N; i++) {
-            x[i] = x_new[i];
-        }
-        
-        if (diff < eps) break;
+    double max_err = 0.0;
+    for (int i = 0; i < dim; ++i) {
+        double err = std::fabs(sol[i] - 1.0);
+        if (err > max_err) max_err = err;
     }
     
-    double end = omp_get_wtime();
-    exec_time = end - start;
+    std::cout << "  Time: " << std::fixed << std::setprecision(6) << end_time << " s\n";
+    std::cout << "  Max error: " << std::scientific << max_err << "\n\n";
     
-    return diff;
+    return end_time;
 }
 
-int main() {
-    int N = 5000; 
-    double tau = 0.1; 
-    double eps = 1e-6; 
-    int max_iter = 10000;  
+void solve_omp_schedule(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                        std::vector<double>& sol, int dim, const char* sched_type, 
+                        double rhs_norm, int num_threads) {
+    const double param_tau = 0.8 / (dim + 1);
+    int step = 0;
+    double current_residual = 1.0;
     
-    vector<int> threads = {1, 2, 4, 7, 8, 16, 20, 40};
+    omp_set_num_threads(num_threads);
     
-    cout << "Решение СЛАУ методом простой итерации" << endl;
-    cout << "Размер матрицы: " << N << " x " << N << endl;
-    cout << "================================================" << endl;
+    std::string sched_str(sched_type);
+    omp_sched_t sched_kind;
+    int chunk = 0;
     
-    vector<double> A(N * N, 1.0);
-    vector<double> b(N, N + 1.0);
-    vector<double> x(N, 0.0);
-    
-    for (int i = 0; i < N; i++) {
-        A[i * N + i] = 2.0;
+    if (sched_str.find("static") == 0) {
+        sched_kind = omp_sched_static;
+        if (sched_str.find(",") != std::string::npos) {
+            chunk = std::stoi(sched_str.substr(sched_str.find(",") + 1));
+        }
+    } else if (sched_str.find("dynamic") == 0) {
+        sched_kind = omp_sched_dynamic;
+        if (sched_str.find(",") != std::string::npos) {
+            chunk = std::stoi(sched_str.substr(sched_str.find(",") + 1));
+        } else {
+            chunk = 64;
+        }
+    } else if (sched_str.find("guided") == 0) {
+        sched_kind = omp_sched_guided;
+        if (sched_str.find(",") != std::string::npos) {
+            chunk = std::stoi(sched_str.substr(sched_str.find(",") + 1));
+        }
+    } else {
+        sched_kind = omp_sched_auto;
     }
     
-    ofstream outfile("slau_benchmark.txt");
-    outfile << "# Потоков Время_V1(сек) Время_V2(сек) Ускорение_V1 Ускорение_V2" << endl;
+    omp_set_schedule(sched_kind, chunk);
     
-    // Замеры для разного количества потоков
-    for (int num_threads : threads) {
-        omp_set_num_threads(num_threads);
-        
-        vector<double> x1(N, 0.0);
-        double time1, time2;
-        
-        solve_iterative_parallel_v1(A, b, x1, N, tau, eps, max_iter, time1);
-        
-        fill(x1.begin(), x1.end(), 0.0);
-        double diff1 = solve_iterative_parallel_v1(A, b, x1, N, tau, eps, max_iter, time1);
-        
-        // Тест варианта 2
-        vector<double> x2(N, 0.0);
-        fill(x2.begin(), x2.end(), 0.0);
-        double diff2 = solve_iterative_parallel_v2(A, b, x2, N, tau, eps, max_iter, time2);
-        
-        cout << "Потоков: " << num_threads << endl;
-        cout << "  V1: время = " << time1 << " сек, diff = " << diff1 << endl;
-        cout << "  V2: время = " << time2 << " сек, diff = " << diff2 << endl;
-        
-        static double base_time1 = 0.0, base_time2 = 0.0;
-        if (num_threads == 1) {
-            base_time1 = time1;
-            base_time2 = time2;
+    while (step < MAX_ITER && (current_residual / rhs_norm) > EPS) {
+        #pragma omp parallel for schedule(runtime)
+        for (int i = 0; i < dim; ++i) {
+            double mx = 0.0;
+            for (int j = 0; j < dim; ++j) {
+                mx += matrix[i * dim + j] * sol[j];
+            }
+            double diff = rhs[i] - mx;
+            sol[i] += param_tau * diff;
         }
         
-        double speedup1 = base_time1 / time1;
-        double speedup2 = base_time2 / time2;
+        double local_norm = 0.0;
+        #pragma omp parallel for reduction(+:local_norm)
+        for (int i = 0; i < dim; ++i) {
+            double mx = 0.0;
+            for (int j = 0; j < dim; ++j) {
+                mx += matrix[i * dim + j] * sol[j];
+            }
+            double diff = rhs[i] - mx;
+            local_norm += diff * diff;
+        }
         
-        outfile << num_threads << " " << time1 << " " << time2 << " " 
-                << speedup1 << " " << speedup2 << endl;
+        current_residual = std::sqrt(local_norm);
+        step++;
+    }
+    
+    std::cout << "  " << std::setw(15) << std::left << sched_type 
+              << " | iter: " << std::setw(5) << step 
+              << " | rel_norm: " << std::scientific << (current_residual / rhs_norm) << "\n";
+}
+
+double test_omp_schedule(const std::vector<double>& matrix, const std::vector<double>& rhs, 
+                         int dim, const char* sched_type, double rhs_norm, int num_threads) {
+    std::vector<double> sol(dim, 0.0);
+    
+    double start_time = get_wall_time();
+    solve_omp_schedule(matrix, rhs, sol, dim, sched_type, rhs_norm, num_threads);
+    double end_time = get_wall_time() - start_time;
+    
+    double max_err = 0.0;
+    for (int i = 0; i < dim; ++i) {
+        double err = std::fabs(sol[i] - 1.0);
+        if (err > max_err) max_err = err;
+    }
+    
+    std::cout << "    Time: " << std::fixed << std::setprecision(4) << end_time << " s"
+              << ", error: " << std::scientific << max_err << "\n\n";
+    
+    return end_time;
+}
+
+int main(int argc, char** argv) {
+    int dim = N_SIZE;
+    if (argc > 1) dim = std::atoi(argv[1]);
+    
+    std::ofstream outfile("results.txt");
+    outfile << "# Threads Serial_Time Split_Time Single_Time Speedup_Split Speedup_Single\n";
+    
+    int threads_array[] = {1, 2, 4, 7, 8, 16, 20, 40};
+    int num_threads_configs = sizeof(threads_array) / sizeof(threads_array[0]);
+    
+    std::cout << "SLAU Solver (Richardson iteration)\n";
+    std::cout << "N = " << dim << ", tau = " << 0.8/(dim+1) << "\n";
+    
+    std::vector<double> matrix(dim * dim);
+    std::vector<double> rhs(dim);
+    
+    #pragma omp parallel for
+    for (int i = 0; i < dim; ++i) {
+        for (int j = 0; j < dim; ++j) {
+            matrix[i * dim + j] = (i == j) ? 2.0 : 1.0;
+        }
+        rhs[i] = dim + 1.0;
+    }
+    
+    double rhs_norm = 0.0;
+    for (double v : rhs) rhs_norm += v * v;
+    rhs_norm = std::sqrt(rhs_norm);
+    
+    double serial_time = test_serial(matrix, rhs, dim, rhs_norm);
+    
+    for (int idx = 0; idx < num_threads_configs; ++idx) {
+        int n_threads = threads_array[idx];
+        omp_set_num_threads(n_threads);
         
-        cout << "  Ускорение V1: " << speedup1 << "x, V2: " << speedup2 << "x" << endl;
-        cout << "----------------------------------------" << endl;
+        std::cout << "--- Testing with " << n_threads << " threads ---\n";
+        
+        double split_time = test_omp_split(matrix, rhs, dim, rhs_norm);
+        double single_time = test_omp_single_region(matrix, rhs, dim, rhs_norm);
+        
+        double speedup_split = serial_time / split_time;
+        double speedup_single = serial_time / single_time;
+        
+        outfile << n_threads << " " << serial_time << " " << split_time << " " 
+                << single_time << " " << speedup_split << " " << speedup_single << "\n";
     }
     
     outfile.close();
+
+    std::cout << "\n=== Schedule study (threads=8) ===\n\n";
     
-    // Исследование schedule (для 8 потоков, фиксированный размер)
-    cout << "\n\nИсследование параметров schedule" << endl;
-    cout << "================================================" << endl;
+    const char* schedules[] = {
+        "static", "static,64", "static,128",
+        "dynamic", "dynamic,64", "dynamic,128",
+        "guided", "guided,64",
+        "auto"
+    };
     
-    vector<int> threads_fixed = {8};
-    vector<string> schedules = {"static", "dynamic", "guided", "auto"};
+    int num_schedules = sizeof(schedules) / sizeof(schedules[0]);
     
-    ofstream schedule_file("schedule_benchmark.txt");
-    schedule_file << "# schedule_type время(сек)" << endl;
+    std::cout << std::left << std::setw(20) << "Schedule" 
+              << " | Time (s) | Rel. norm\n";
+    std::cout << std::string(55, '-') << "\n";
     
-    for (int num_threads : threads_fixed) {
-        omp_set_num_threads(num_threads);
-        vector<double> x_test(N, 0.0);
-        
-        for (const string& sched : schedules) {
-            double time = 0.0;
-            
-            // Код с разными schedule
-            vector<double> Ax(N, 0.0);
-            vector<double> x_new(N, 0.0);
-            double diff = 0.0;
-            int iter = 0;
-            
-            double start = omp_get_wtime();
-            
-            for (iter = 0; iter < max_iter && diff < eps; iter++) {
-                if (sched == "static") {
-                    #pragma omp parallel for schedule(static)
-                    for (int i = 0; i < N; i++) {
-                        double sum = 0.0;
-                        for (int j = 0; j < N; j++) {
-                            sum += A[i * N + j] * x_test[j];
-                        }
-                        Ax[i] = sum;
-                    }
-                } else if (sched == "dynamic") {
-                    #pragma omp parallel for schedule(dynamic, 64)
-                    for (int i = 0; i < N; i++) {
-                        double sum = 0.0;
-                        for (int j = 0; j < N; j++) {
-                            sum += A[i * N + j] * x_test[j];
-                        }
-                        Ax[i] = sum;
-                    }
-                } else if (sched == "guided") {
-                    #pragma omp parallel for schedule(guided)
-                    for (int i = 0; i < N; i++) {
-                        double sum = 0.0;
-                        for (int j = 0; j < N; j++) {
-                            sum += A[i * N + j] * x_test[j];
-                        }
-                        Ax[i] = sum;
-                    }
-                } else {
-                    #pragma omp parallel for schedule(auto)
-                    for (int i = 0; i < N; i++) {
-                        double sum = 0.0;
-                        for (int j = 0; j < N; j++) {
-                            sum += A[i * N + j] * x_test[j];
-                        }
-                        Ax[i] = sum;
-                    }
-                }
-                
-                #pragma omp parallel for reduction(max:diff)
-                for (int i = 0; i < N; i++) {
-                    x_new[i] = x_test[i] - tau * (Ax[i] - b[i]);
-                    double d = fabs(x_new[i] - x_test[i]);
-                    if (d > diff) diff = d;
-                }
-                
-                #pragma omp parallel for
-                for (int i = 0; i < N; i++) {
-                    x_test[i] = x_new[i];
-                }
-            }
-            
-            double end = omp_get_wtime();
-            time = end - start;
-            
-            cout << "Schedule: " << sched << " | Время: " << time << " сек" << endl;
-            schedule_file << sched << " " << time << endl;
-        }
+    for (int i = 0; i < num_schedules; ++i) {
+        test_omp_schedule(matrix, rhs, dim, schedules[i], rhs_norm, 8); 
     }
-    
-    schedule_file.close();
-    
-    cout << "Результаты сохранены в slau_benchmark.txt и schedule_benchmark.txt" << endl;
+    std::cout << "\nResults saved to results.txt\n";
     
     return 0;
 }
