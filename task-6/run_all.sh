@@ -1,59 +1,154 @@
 #!/bin/bash
 
-echo "=========================================="
-echo "Задание 6: Решение уравнения теплопроводности"
-echo "=========================================="
-echo ""
+# =========================================================
+# TASK 6 TEST SCRIPT
+# Heat equation + OpenACC
+# =========================================================
 
-# Компиляция
-echo "=== Компиляция ==="
-g++ -O2 jacobi.cpp -o jacobi_seq
-g++ -O2 -fopenmp jacobi.cpp -o jacobi_omp
-echo "  ✅ jacobi_seq"
-echo "  ✅ jacobi_omp"
-echo ""
+set -e
 
-# 1. Печать сетки 10x10 и 13x13
-echo "=== 1. Печать сетки (для проверки) ==="
-echo ""
-echo "--- Сетка 10x10 ---"
-./jacobi_seq -s 10 -p
-echo ""
-echo "--- Сетка 13x13 ---"
-./jacobi_seq -s 13 -p
-echo ""
+SOURCE="heat.cpp"
+EXEC="heat"
 
-# 2. Сохранение в файлы
-mkdir -p results
-./jacobi_seq -s 10 -p > results/grid_10x10.txt 2>&1
-./jacobi_seq -s 13 -p > results/grid_13x13.txt 2>&1
-echo "=== 2. Результаты сохранены ==="
-echo "  ✅ results/grid_10x10.txt"
-echo "  ✅ results/grid_13x13.txt"
-echo ""
+echo "=================================================="
+echo "COMPILATION"
+echo "=================================================="
 
-# 3. Тестирование производительности
-echo "=== 3. Тестирование производительности ==="
-echo ""
+# ---------------------------------------------------------
+# GPU VERSION
+# ---------------------------------------------------------
 
-# Функция для запуска
-run_test() {
-    local cmd=$1
-    local name=$2
-    local size=$3
-    
-    echo "=========================================="
-    echo "$name: $size x $size"
-    echo "=========================================="
-    $cmd -s $size -e 1e-6
-    echo ""
-}
+echo
+echo "[1] GPU build"
 
-# Запускаем тесты
-for size in 128 256 512 1024; do
-    run_test "./jacobi_seq" "SEQUENTIAL" $size
-    run_test "./jacobi_omp" "OPENMP" $size
+nvc++ \
+    -O2 \
+    -acc=gpu \
+    -Minfo=all \
+    "$SOURCE" \
+    -o "${EXEC}_gpu"
+
+echo "GPU build completed"
+
+
+# ---------------------------------------------------------
+# CPU HOST VERSION
+# ---------------------------------------------------------
+
+echo
+echo "[2] HOST build"
+
+nvc++ \
+    -O2 \
+    -acc=host \
+    -Minfo=all \
+    "$SOURCE" \
+    -o "${EXEC}_host"
+
+echo "HOST build completed"
+
+
+# ---------------------------------------------------------
+# MULTICORE VERSION
+# ---------------------------------------------------------
+
+echo
+echo "[3] MULTICORE build"
+
+nvc++ \
+    -O2 \
+    -acc=multicore \
+    -Minfo=all \
+    "$SOURCE" \
+    -o "${EXEC}_multi"
+
+echo "MULTICORE build completed"
+
+
+echo
+echo "=================================================="
+echo "SMALL GRID CHECK"
+echo "=================================================="
+
+echo
+echo "[4] 10x10 grid"
+
+./${EXEC}_host \
+    --size 10 \
+    --eps 1e-6 \
+    --max-iters 1000 \
+    --print
+
+
+echo
+echo "[5] 13x13 grid"
+
+./${EXEC}_host \
+    --size 13 \
+    --eps 1e-6 \
+    --max-iters 1000 \
+    --print
+
+
+echo
+echo "=================================================="
+echo "PERFORMANCE TESTS"
+echo "=================================================="
+
+sizes=(128 256 512 1024)
+
+for s in "${sizes[@]}"
+do
+    echo
+    echo "----------------------------------------------"
+    echo "GRID SIZE: ${s}x${s}"
+    echo "----------------------------------------------"
+
+    echo
+    echo "[HOST]"
+    ./${EXEC}_host \
+        --size $s \
+        --eps 1e-6 \
+        --max-iters 100000
+
+    echo
+    echo "[MULTICORE]"
+    ./${EXEC}_multi \
+        --size $s \
+        --eps 1e-6 \
+        --max-iters 100000
+
+    echo
+    echo "[GPU]"
+    ./${EXEC}_gpu \
+        --size $s \
+        --eps 1e-6 \
+        --max-iters 100000
 done
 
-echo "=== 4. Готово ==="
-echo "Результаты в папке results/"
+
+echo
+echo "=================================================="
+echo "NSIGHT SYSTEMS PROFILING"
+echo "=================================================="
+
+echo
+echo "[6] Creating Nsight profile"
+
+nsys profile \
+    --stats=true \
+    -o heat_profile \
+    ./${EXEC}_gpu \
+    --size 512 \
+    --max-iters 50
+
+echo
+echo "Nsight profile saved:"
+echo "heat_profile.qdrep"
+echo "heat_profile.sqlite"
+
+
+echo
+echo "=================================================="
+echo "DONE"
+echo "=================================================="

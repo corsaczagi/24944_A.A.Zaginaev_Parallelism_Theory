@@ -1,31 +1,71 @@
-cmake_minimum_required(VERSION 3.10)
-project(Jacobi2D)
+cmake_minimum_required(VERSION 3.20)
 
-set(CMAKE_CXX_STANDARD 11)
+project(Task6_OpenACC LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Настройки для разных компиляторов
-if(CMAKE_CXX_COMPILER_ID STREQUAL "PGI" OR CMAKE_CXX_COMPILER_ID STREQUAL "NVIDIA")
-    # NVIDIA HPC SDK (pgc++)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -acc -Minfo=all")
-    
-    # CPU многоядерный
-    add_executable(jacobi_cpu jacobi.cpp)
-    target_compile_options(jacobi_cpu PRIVATE -ta=multicore)
-    
-    # GPU (если есть)
-    add_executable(jacobi_gpu jacobi.cpp)
-    target_compile_options(jacobi_gpu PRIVATE -ta=nvidia)
-    
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # GCC (ограниченная поддержка OpenACC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenacc -O3")
-    add_executable(jacobi jacobi.cpp)
-    
-else()
-    # Clang, MSVC и другие (без OpenACC)
-    add_executable(jacobi jacobi.cpp)
+add_executable(heat heat.cpp)
+
+option(USE_BOOST "Use Boost.Program_options" ON)
+
+if(USE_BOOST)
+
+    find_package(Boost COMPONENTS program_options)
+
+    if(Boost_FOUND)
+
+        target_compile_definitions(heat PRIVATE USE_BOOST)
+
+        target_link_libraries(
+            heat PRIVATE
+            Boost::program_options
+        )
+
+    endif()
+
 endif()
 
-# Последовательная версия (без OpenACC)
-add_executable(jacobi_seq jacobi.cpp)
+option(OPENACC_GPU "GPU mode" OFF)
+option(OPENACC_MULTICORE "Multicore mode" OFF)
+option(OPENACC_HOST "Host mode" OFF)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "NVHPC")
+
+    target_compile_options(
+        heat PRIVATE
+        -O2
+        -Minfo=all
+    )
+
+    if(OPENACC_GPU)
+
+        target_compile_options(
+            heat PRIVATE
+            -acc=gpu
+        )
+
+    elseif(OPENACC_MULTICORE)
+
+        target_compile_options(
+            heat PRIVATE
+            -acc=multicore
+        )
+
+    elseif(OPENACC_HOST)
+
+        target_compile_options(
+            heat PRIVATE
+            -acc=host
+        )
+
+    else()
+
+        target_compile_options(
+            heat PRIVATE
+            -acc
+        )
+
+    endif()
+
+endif()
