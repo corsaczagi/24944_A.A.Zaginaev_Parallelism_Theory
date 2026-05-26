@@ -6,7 +6,6 @@ from queue import Queue, Empty
 from threading import Thread, Lock
 import os
 
-# проверка и загрузка модели
 model_path = 'yolov8s-pose.pt'
 if not os.path.exists(model_path):
     print("скачивание модели...")
@@ -14,7 +13,6 @@ if not os.path.exists(model_path):
     del model
     print("модель загружена")
 
-# параметры
 TARGET_SIZE = (640, 480)
 MAX_FRAMES = 200
 FRAME_STEP = 1
@@ -58,7 +56,7 @@ class WorkerThread:
                 
             except Empty:
                 continue
-            except Exception as e:
+            except Exception:
                 self.queue.task_done()
     
     def stop(self):
@@ -125,53 +123,36 @@ def process_video(video_path, output_path, num_workers):
     return sent_count, elapsed
 
 
-print("лабораторная работа: ускорение инференса yolov8-pose")
+def main():
+    print("В процессе работы")
 
-video_path = "test-video.mp4"
+    video_path = "test-video.mp4"
+    
+    if not os.path.exists(video_path):
+        print(f"ошибка: видео {video_path} не найдено")
+        return
+    
+    base_frames, base_time = process_video(video_path, "output_base.mp4", 1)
+    
+    results = [(1, base_time, base_frames, 1.0)]
+    
+    for workers in [2, 4, 8, 16]:
+        frames, elapsed = process_video(video_path, f"output_{workers}.mp4", workers)
+        speedup = base_time / elapsed
+        results.append((workers, elapsed, frames, speedup))
+    
+    best = max(results[1:], key=lambda x: x[3])
+    
+    with open("results.txt", "w") as f:
+        f.write("лабораторная работа: ускорение инференса yolov8-pose\n\n")
+        f.write(f"обработано кадров: {base_frames}\n")
+        f.write(f"размер обработки: {TARGET_SIZE[0]}x{TARGET_SIZE[1]}\n\n")
+        f.write(f"{'потоков':>8} | {'время':>10} | {'ускорение':>10}\n")
+        for workers, elapsed, frames, speedup in results:
+            f.write(f"{workers:8} | {elapsed:10.2f} | {speedup:10.2f}x\n")
+        f.write(f"\nоптимальное число потоков: {best[0]}\n")
 
-if not os.path.exists(video_path):
-    print(f"ошибка: видео {video_path} не найдено")
-    exit()
+    print("\nрезультаты сохранены в results.txt")
 
-print(f"\nвидео: {video_path}")
-print(f"размер обработки: {TARGET_SIZE[0]}x{TARGET_SIZE[1]}")
-print(f"обрабатываем каждый {FRAME_STEP}-й кадр, всего {TOTAL_TO_PROCESS} кадров")
-
-# сначала получаем базовое время для 1 потока (не выводим процесс)
-print("\nзамер времени для 1 потока...")
-base_frames, base_time = process_video(video_path, "output_base.mp4", 1)
-
-print(f"\nбазовое время (1 поток): {base_time:.2f} сек, {base_frames} кадров, fps: {base_frames/base_time:.2f}")
-
-# тестирование потоков от 2 до 16
-print("\nтестирование потоков:")
-
-results = [(1, base_time, base_frames, 1.0, 100.0)]
-
-for workers in [2, 4, 8, 16]:
-    print(f"\n{workers} потоков...")
-    frames, elapsed = process_video(video_path, f"output_{workers}.mp4", workers)
-    speedup = base_time / elapsed
-    efficiency = speedup / workers * 100
-    results.append((workers, elapsed, frames, speedup, efficiency))
-    print(f"    время: {elapsed:.2f} сек, ускорение: {speedup:.2f}x, эффективность: {efficiency:.1f}%")
-
-# находим лучшее ускорение 
-best = max(results[1:], key=lambda x: x[3])
-print("-" * 60)
-print(f"\nоптимальное число потоков: {best[0]}")
-print(f"ускорение: {best[3]:.2f}x")
-
-# сохранение результатов
-with open("results.txt", "w") as f:
-    f.write("лабораторная работа: ускорение инференса yolov8-pose\n\n")
-    f.write(f"обработано кадров: {base_frames}\n")
-    f.write(f"размер обработки: {TARGET_SIZE[0]}x{TARGET_SIZE[1]}\n\n")
-    f.write(f"{'потоков':>8} | {'время':>10} | {'ускорение':>10} | {'эффективность':>12}\n")
-    f.write("-" * 60 + "\n")
-    for workers, elapsed, frames, speedup, efficiency in results:
-        f.write(f"{workers:8} | {elapsed:10.2f} | {speedup:10.2f}x | {efficiency:11.1f}%\n")
-    f.write("-" * 60 + "\n")
-    f.write(f"оптимальное число потоков: {best[0]}\n")
-
-print("\nрезультаты сохранены в results.txt")
+if __name__ == '__main__':
+    main()

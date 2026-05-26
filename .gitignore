@@ -17,3 +17,17 @@ seminars/
 *.jpeg
 *.gif
 *.bmp
+*.mp4
+**/log/
+log/
+/log/
+*/log/
+*/*/log/
+*/*/*/log/
+**/log/
+venv/
+/venv/
+*/venv/
+*/*/venv/
+*/*/*/venv/
+*.pt

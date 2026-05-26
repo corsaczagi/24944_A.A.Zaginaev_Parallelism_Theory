@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import cv2
+import numpy as np
 import logging
 import time
 import sys
@@ -16,14 +18,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.FileHandler('log/sensor.log'), logging.StreamHandler()]
 )
-
-try:
-    import cv2
-    import numpy as np
-except ImportError:
-    print("pip install opencv-python")
-    sys.exit(1)
-
 
 class Sensor(ABC):
     @abstractmethod
