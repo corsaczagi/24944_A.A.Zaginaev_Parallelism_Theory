@@ -7,7 +7,7 @@
 
 set -e
 
-SOURCE="heat.cpp"
+SOURCE="jacobi.cpp"
 EXEC="heat"
 
 echo "=================================================="
