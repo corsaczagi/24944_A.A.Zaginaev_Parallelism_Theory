@@ -248,20 +248,16 @@ SolveResult solve(
     double eps,
     int max_iters
 ) {
-
     const int total = size * size;
 
-    std::vector<double> next = grid;
-
-    double* current = grid.data();
-    double* next_grid = next.data();
+    std::vector<double> next(grid);
 
     SolveResult result;
 
     auto start =
         std::chrono::high_resolution_clock::now();
 
-#pragma acc data copy(current[0:total], next_grid[0:total])
+#pragma acc data copy(grid[0:total]) create(next[0:total])
     {
         for (int iter = 1;
              iter <= max_iters;
@@ -281,17 +277,17 @@ SolveResult solve(
                     const int pos =
                         row * size + col;
 
-                    next_grid[pos] =
+                    next[pos] =
                         0.25 * (
-                            current[pos - 1] +
-                            current[pos + 1] +
-                            current[pos - size] +
-                            current[pos + size]
+                            grid[pos - 1] +
+                            grid[pos + 1] +
+                            grid[pos - size] +
+                            grid[pos + size]
                         );
 
                     const double diff =
                         std::fabs(
-                            next_grid[pos] - current[pos]
+                            next[pos] - grid[pos]
                         );
 
                     if (diff > error) {
@@ -300,8 +296,10 @@ SolveResult solve(
                 }
             }
 
-            // swap ТОЛЬКО указателей
-            std::swap(current, next_grid);
+#pragma acc parallel loop
+            for (int i = 0; i < total; ++i) {
+                grid[i] = next[i];
+            }
 
             result.iterations = iter;
             result.error = error;
@@ -310,18 +308,6 @@ SolveResult solve(
                 break;
             }
         }
-
-#pragma acc update self(current[0:total])
-    }
-
-    // если финальные данные лежат в next
-    if (current != grid.data()) {
-
-        std::copy(
-            current,
-            current + total,
-            grid.begin()
-        );
     }
 
     auto finish =
