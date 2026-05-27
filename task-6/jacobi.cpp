@@ -250,7 +250,7 @@ SolveResult solve(
 ) {
     const int total = size * size;
 
-    std::vector<double> next(grid);
+    std::vector<double> next = grid;
 
     SolveResult result;
 
@@ -285,27 +285,33 @@ SolveResult solve(
                             grid[pos + size]
                         );
 
-                    const double diff =
-                        std::fabs(
-                            next[pos] - grid[pos]
-                        );
+                    double diff =
+                        fabs(next[pos] - grid[pos]);
 
-                    if (diff > error) {
+                    if (diff > error)
                         error = diff;
-                    }
                 }
-            }
-
-#pragma acc parallel loop
-            for (int i = 0; i < total; ++i) {
-                grid[i] = next[i];
             }
 
             result.iterations = iter;
             result.error = error;
 
-            if (error < eps) {
+            if (error < eps)
                 break;
+
+#pragma acc parallel loop collapse(2)
+            for (int row = 1;
+                 row < size - 1;
+                 ++row) {
+
+                for (int col = 1;
+                     col < size - 1;
+                     ++col) {
+
+                    int pos = row * size + col;
+
+                    grid[pos] = next[pos];
+                }
             }
         }
     }
