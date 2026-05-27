@@ -262,61 +262,43 @@ SolveResult solve(
     auto start =
         std::chrono::high_resolution_clock::now();
 
-#pragma acc data copy(current[0:total], next_grid[0:total])
-    {
+#pragma acc data copy(grid[0:total], next[0:total])
+{
+    for (int iter = 1; iter <= max_iters; ++iter) {
 
-        for (int iter = 1;
-             iter <= max_iters;
-             ++iter) {
+        double error = 0.0;
 
-            double error = 0.0;
-
-            // пятиточечный шаблон
 #pragma acc parallel loop collapse(2) reduction(max:error)
-            for (int row = 1;
-                 row < size - 1;
-                 ++row) {
+        for (int row = 1; row < size - 1; ++row) {
 
-                for (int col = 1;
-                     col < size - 1;
-                     ++col) {
+            for (int col = 1; col < size - 1; ++col) {
 
-                    const int pos =
-                        row * size + col;
+                const int pos = row * size + col;
 
-                    const double value =
-                        0.25 * (
-                            current[pos - 1] +
-                            current[pos + 1] +
-                            current[pos - size] +
-                            current[pos + size]
-                        );
+                next[pos] =
+                    0.25 * (
+                        grid[pos - 1] +
+                        grid[pos + 1] +
+                        grid[pos - size] +
+                        grid[pos + size]
+                    );
 
-                    const double diff =
-                        std::fabs(
-                            value - current[pos]
-                        );
+                const double diff =
+                    std::fabs(next[pos] - grid[pos]);
 
-                    error =
-                        diff > error ? diff : error;
-
-                    next_grid[pos] = value;
-                }
-            }
-
-            // ОПТИМИЗАЦИЯ:
-            // вместо копирования всей матрицы
-            // просто меняем указатели местами
-            std::swap(current, next_grid);
-
-            result.iterations = iter;
-            result.error = error;
-
-            if (error < eps) {
-
-                break;
+                error = diff > error ? diff : error;
             }
         }
+
+        std::swap(grid, next);
+
+        result.iterations = iter;
+        result.error = error;
+
+        if (error < eps)
+            break;
+    }
+}
 
         // если итоговые данные лежат не в grid
         // копируем указатель обратно
