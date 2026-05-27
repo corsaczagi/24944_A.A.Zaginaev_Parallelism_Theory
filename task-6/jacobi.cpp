@@ -253,12 +253,15 @@ SolveResult solve(
 
     std::vector<double> next = grid;
 
+    double* current = grid.data();
+    double* next_grid = next.data();
+
     SolveResult result;
 
     auto start =
         std::chrono::high_resolution_clock::now();
 
-#pragma acc data copy(grid[0:total], next[0:total])
+#pragma acc data copy(current[0:total], next_grid[0:total])
     {
         for (int iter = 1;
              iter <= max_iters;
@@ -278,34 +281,47 @@ SolveResult solve(
                     const int pos =
                         row * size + col;
 
-                    next[pos] =
+                    next_grid[pos] =
                         0.25 * (
-                            grid[pos - 1] +
-                            grid[pos + 1] +
-                            grid[pos - size] +
-                            grid[pos + size]
+                            current[pos - 1] +
+                            current[pos + 1] +
+                            current[pos - size] +
+                            current[pos + size]
                         );
 
                     const double diff =
                         std::fabs(
-                            next[pos] - grid[pos]
+                            next_grid[pos] - current[pos]
                         );
 
-                    error =
-                        diff > error ? diff : error;
+                    if (diff > error) {
+                        error = diff;
+                    }
                 }
             }
 
-            grid.swap(next);
+            // swap ТОЛЬКО указателей
+            std::swap(current, next_grid);
 
             result.iterations = iter;
             result.error = error;
 
             if (error < eps) {
-
                 break;
             }
         }
+
+#pragma acc update self(current[0:total])
+    }
+
+    // если финальные данные лежат в next
+    if (current != grid.data()) {
+
+        std::copy(
+            current,
+            current + total,
+            grid.begin()
+        );
     }
 
     auto finish =
