@@ -250,7 +250,7 @@ SolveResult solve(
 ) {
     const int total = size * size;
 
-    std::vector<double> next = grid;
+    std::vector<double> next(grid);
 
     SolveResult result;
 
@@ -259,23 +259,16 @@ SolveResult solve(
 
 #pragma acc data copy(grid[0:total]) create(next[0:total])
     {
-        for (int iter = 1;
-             iter <= max_iters;
-             ++iter) {
+        for (int iter = 1; iter <= max_iters; ++iter) {
 
             double error = 0.0;
 
 #pragma acc parallel loop collapse(2) reduction(max:error)
-            for (int row = 1;
-                 row < size - 1;
-                 ++row) {
+            for (int row = 1; row < size - 1; ++row) {
 
-                for (int col = 1;
-                     col < size - 1;
-                     ++col) {
+                for (int col = 1; col < size - 1; ++col) {
 
-                    const int pos =
-                        row * size + col;
+                    const int pos = row * size + col;
 
                     next[pos] =
                         0.25 * (
@@ -286,10 +279,21 @@ SolveResult solve(
                         );
 
                     double diff =
-                        fabs(next[pos] - grid[pos]);
+                        std::fabs(next[pos] - grid[pos]);
 
                     if (diff > error)
                         error = diff;
+                }
+            }
+
+#pragma acc parallel loop collapse(2)
+            for (int row = 1; row < size - 1; ++row) {
+
+                for (int col = 1; col < size - 1; ++col) {
+
+                    const int pos = row * size + col;
+
+                    grid[pos] = next[pos];
                 }
             }
 
@@ -298,21 +302,6 @@ SolveResult solve(
 
             if (error < eps)
                 break;
-
-#pragma acc parallel loop collapse(2)
-            for (int row = 1;
-                 row < size - 1;
-                 ++row) {
-
-                for (int col = 1;
-                     col < size - 1;
-                     ++col) {
-
-                    int pos = row * size + col;
-
-                    grid[pos] = next[pos];
-                }
-            }
         }
     }
 
@@ -326,7 +315,6 @@ SolveResult solve(
 
     return result;
 }
-
 int main(int argc, char** argv) {
 
     try {
