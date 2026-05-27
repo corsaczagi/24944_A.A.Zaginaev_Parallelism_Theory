@@ -16,6 +16,7 @@
 #endif
 
 struct Config {
+
     int size = 128;
     double eps = 1e-6;
     int max_iters = 1000000;
@@ -23,12 +24,13 @@ struct Config {
 };
 
 void print_usage(const char* program) {
+
     std::cout
         << "Usage: " << program << " [options]\n"
         << "Options:\n"
-        << "  --size N        Grid size: 10, 13, 128, 256, 512, 1024 ...\n"
-        << "  --eps VALUE     Stop accuracy, default 1e-6\n"
-        << "  --max-iters N   Maximum iterations, default 1000000\n"
+        << "  --size N        Grid size\n"
+        << "  --eps VALUE     Stop accuracy\n"
+        << "  --max-iters N   Maximum iterations\n"
         << "  --print         Print resulting grid\n"
         << "  --help          Show help\n";
 }
@@ -182,31 +184,29 @@ void init_boundaries(
     const double denom =
         static_cast<double>(size - 1);
 
-    // заполняем внутренность нулями
     std::fill(grid.begin(), grid.end(), 0.0);
 
-    // линейная интерполяция границ
     for (int i = 0; i < size; ++i) {
 
         const double t =
             static_cast<double>(i) / denom;
 
-        // верхняя граница
+        // верх
         grid[idx(0, i, size)] =
             top_left +
             (top_right - top_left) * t;
 
-        // нижняя граница
+        // низ
         grid[idx(size - 1, i, size)] =
             bottom_left +
             (bottom_right - bottom_left) * t;
 
-        // левая граница
+        // лево
         grid[idx(i, 0, size)] =
             top_left +
             (bottom_left - top_left) * t;
 
-        // правая граница
+        // право
         grid[idx(i, size - 1, size)] =
             top_right +
             (bottom_right - top_right) * t;
@@ -251,11 +251,7 @@ SolveResult solve(
 
     const int total = size * size;
 
-    // второй буфер
     std::vector<double> next = grid;
-
-    double* current = grid.data();
-    double* next_grid = next.data();
 
     SolveResult result;
 
@@ -263,54 +259,52 @@ SolveResult solve(
         std::chrono::high_resolution_clock::now();
 
 #pragma acc data copy(grid[0:total], next[0:total])
-{
-    for (int iter = 1; iter <= max_iters; ++iter) {
+    {
+        for (int iter = 1;
+             iter <= max_iters;
+             ++iter) {
 
-        double error = 0.0;
+            double error = 0.0;
 
 #pragma acc parallel loop collapse(2) reduction(max:error)
-        for (int row = 1; row < size - 1; ++row) {
+            for (int row = 1;
+                 row < size - 1;
+                 ++row) {
 
-            for (int col = 1; col < size - 1; ++col) {
+                for (int col = 1;
+                     col < size - 1;
+                     ++col) {
 
-                const int pos = row * size + col;
+                    const int pos =
+                        row * size + col;
 
-                next[pos] =
-                    0.25 * (
-                        grid[pos - 1] +
-                        grid[pos + 1] +
-                        grid[pos - size] +
-                        grid[pos + size]
-                    );
+                    next[pos] =
+                        0.25 * (
+                            grid[pos - 1] +
+                            grid[pos + 1] +
+                            grid[pos - size] +
+                            grid[pos + size]
+                        );
 
-                const double diff =
-                    std::fabs(next[pos] - grid[pos]);
+                    const double diff =
+                        std::fabs(
+                            next[pos] - grid[pos]
+                        );
 
-                error = diff > error ? diff : error;
+                    error =
+                        diff > error ? diff : error;
+                }
             }
-        }
 
-        std::swap(grid, next);
+            grid.swap(next);
 
-        result.iterations = iter;
-        result.error = error;
+            result.iterations = iter;
+            result.error = error;
 
-        if (error < eps)
-            break;
-    }
-}
+            if (error < eps) {
 
-        // если итоговые данные лежат не в grid
-        // копируем указатель обратно
-#pragma acc update self(current[0:total])
-
-        if (current != grid.data()) {
-
-            std::copy(
-                current,
-                current + total,
-                grid.begin()
-            );
+                break;
+            }
         }
     }
 
@@ -374,7 +368,6 @@ int main(int argc, char** argv) {
             << result.seconds
             << " sec\n";
 
-        // печать маленьких сеток
         if (cfg.print_grid || cfg.size <= 13) {
 
             std::cout << "Grid:\n";
