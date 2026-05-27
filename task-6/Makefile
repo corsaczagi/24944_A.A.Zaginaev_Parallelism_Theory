@@ -1,9 +1,9 @@
 CXX = pgc++
-CXXFLAGS = -acc -Minfo=all -O3 -std=c++11
-LDFLAGS = -lboost_program_options
+CXXFLAGS = -acc -Minfo=all -O3 -std=c++11 -ta=tesla:managed
+LDFLAGS = 
 
-SOURCES = heat_solver.cpp
 TARGET = heat_solver
+SOURCES = heat_solver.cpp
 
 all: $(TARGET)
 
@@ -13,16 +13,29 @@ $(TARGET): $(SOURCES)
 clean:
 	rm -f $(TARGET)
 
-run-cpu: $(TARGET)
+run-cpu:
+	./$(TARGET) --size 512 --precision 1e-6 --cpu
+
+run-gpu:
 	./$(TARGET) --size 512 --precision 1e-6
 
-run-gpu: $(TARGET)
-	ACC_DEVICE_TYPE=nvidia ./$(TARGET) --size 512 --precision 1e-6
+run-small:
+	./$(TARGET) --size 128 --precision 1e-6
 
-run-multicore: $(TARGET)
-	ACC_NUM_CORES=8 ./$(TARGET) --size 512 --precision 1e-6
+print:
+	./$(TARGET) --size 10 --print
+
+bench:
+	for size in 128 256 512 1024; do \
+		echo "=== Size: $$size ==="; \
+		echo -n "CPU: "; \
+		./$(TARGET) --size $$size --precision 1e-6 --cpu 2>/dev/null | grep "Time:"; \
+		echo -n "GPU: "; \
+		./$(TARGET) --size $$size --precision 1e-6 2>/dev/null | grep "Time:"; \
+		echo ""; \
+	done
 
 profile:
-	nsys profile -o heat_solver_profile --stats=true ./$(TARGET) --size 256 --iterations 50
+	nsys profile -o heat_profile --stats=true ./$(TARGET) --size 256 --iterations 50
 
-.PHONY: all clean run-cpu run-gpu run-multicore profile
+.PHONY: all clean run-cpu run-gpu run-small print bench profile
