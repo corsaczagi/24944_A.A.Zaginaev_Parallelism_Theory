@@ -2,66 +2,40 @@
 
 set -e
 
-HOST=./build/jacobi_host
-MULTI=./build/jacobi_multi
-GPU=./build/jacobi_gpu
+echo "=============================="
+echo "BUILD HOST VERSION"
+echo "=============================="
+
+pgc++ jacobi.cpp 
+-O3 
+-Minfo=all 
+-acc=host 
+-o jacobi_host
 
 echo ""
-echo "=================================================="
-echo "SMALL GRID CHECK"
-echo "=================================================="
-echo ""
+echo "=============================="
+echo "BUILD MULTICORE VERSION"
+echo "=============================="
 
-for s in 10 13
-do
-    echo "[$s] ${s}x${s} grid"
-
-    ${GPU} \
-        --size $s \
-        --eps 1e-6 \
-        --max-iters 100000
-
-    echo ""
-done
+pgc++ jacobi.cpp 
+-O3 
+-Minfo=all 
+-acc=multicore 
+-o jacobi_multi
 
 echo ""
-echo "=================================================="
-echo "PERFORMANCE TESTS"
-echo "=================================================="
+echo "=============================="
+echo "BUILD GPU VERSION"
+echo "=============================="
+
+pgc++ jacobi.cpp 
+-O3 
+-Minfo=all 
+-acc=gpu 
+-gpu=managed 
+-o jacobi_gpu
+
 echo ""
-
-for s in 128 256 512 1024
-do
-    echo ""
-    echo "----------------------------------------------"
-    echo "GRID SIZE: ${s}x${s}"
-    echo "----------------------------------------------"
-    echo ""
-
-    echo "[HOST]"
-
-    ${HOST} \
-        --size $s \
-        --eps 1e-6 \
-        --max-iters 1000000
-
-    echo ""
-
-    echo "[MULTICORE]"
-
-    ${MULTI} \
-        --size $s \
-        --eps 1e-6 \
-        --max-iters 1000000
-
-    echo ""
-
-    echo "[GPU]"
-
-    ${GPU} \
-        --size $s \
-        --eps 1e-6 \
-        --max-iters 1000000
-
-    echo ""
-done
+echo "=============================="
+echo "BUILD FINISHED"
+echo "=============================="
