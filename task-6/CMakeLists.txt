@@ -3,7 +3,13 @@ project(HeatEquationSolver LANGUAGES CXX)
 
 # Устанавливаем компилятор NVIDIA HPC SDK
 set(CMAKE_CXX_COMPILER "pgc++")
-set(CMAKE_CXX_FLAGS "-fast -O3 -Minfo=all")
+set(CMAKE_CXX_FLAGS "-O3 -Minfo=all")
+
+# Базовый ключ OpenACC (можно переопределить через командную строку)
+if(NOT DEFINED OPENACC_MODE)
+    set(OPENACC_MODE "gpu")
+endif()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -acc=${OPENACC_MODE}")
 
 # Находим Boost
 find_package(Boost REQUIRED COMPONENTS program_options)
@@ -12,15 +18,6 @@ find_package(Boost REQUIRED COMPONENTS program_options)
 add_executable(heat_solver main.cpp)
 target_link_libraries(heat_solver ${Boost_LIBRARIES})
 
-# Цели для разных режимов OpenACC
-add_custom_target(build_cpu
-    COMMAND ${CMAKE_COMMAND} -E env CXXFLAGS="-acc=host -Minfo=all" ${CMAKE_MAKE_PROGRAM}
-    COMMENT "Building for CPU (host)")
-
-add_custom_target(build_multicore
-    COMMAND ${CMAKE_COMMAND} -E env CXXFLAGS="-acc=multicore -Minfo=all" ${CMAKE_MAKE_PROGRAM}
-    COMMENT "Building for multicore CPU")
-
-add_custom_target(build_gpu
-    COMMAND ${CMAKE_COMMAND} -E env CXXFLAGS="-acc=gpu -Minfo=all" ${CMAKE_MAKE_PROGRAM}
-    COMMENT "Building for GPU")
+# Выводим информацию о сборке
+message(STATUS "OpenACC mode: ${OPENACC_MODE}")
+message(STATUS "CXX Flags: ${CMAKE_CXX_FLAGS}")
