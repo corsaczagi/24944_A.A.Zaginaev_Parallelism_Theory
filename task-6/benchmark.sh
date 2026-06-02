@@ -1,41 +1,49 @@
 #!/bin/bash
 
-echo "Heat Equation Solver - Performance Benchmark"
-echo "============================================"
+EPS=1e-6
+MAX_ITER=1000000
+
+SIZES=(
+128
+256
+512
+1024
+)
+
+echo "==========================================="
+echo " Heat Equation Benchmark"
+echo "==========================================="
+
+for SIZE in "${SIZES[@]}"
+do
+
 echo ""
+echo "###########################################"
+echo "GRID ${SIZE}x${SIZE}"
+echo "###########################################"
 
-# Размеры сеток
-SIZES=(128 256 512 1024)
-PRECISION=1e-6
+echo ""
+echo "HOST"
+./heat_host \
+    --size ${SIZE} \
+    --eps ${EPS} \
+    --iter ${MAX_ITER} \
+| grep -E "Iterations|Final error|Time"
 
-# Файл для результатов
-RESULT_FILE="results.csv"
-echo "Size,Device,Iterations,Time(s),MUpdates/s" > $RESULT_FILE
+echo ""
+echo "MULTICORE"
+./heat_multicore \
+    --size ${SIZE} \
+    --eps ${EPS} \
+    --iter ${MAX_ITER} \
+| grep -E "Iterations|Final error|Time"
 
-for size in "${SIZES[@]}"; do
-    echo "Testing grid size: ${size}x${size}"
-    
-    # CPU
-    echo "  CPU..."
-    OUTPUT=$(./heat_solver --size $size --precision $PRECISION --cpu 2>/dev/null)
-    ITER=$(echo "$OUTPUT" | grep "Iterations:" | awk '{print $2}')
-    TIME=$(echo "$OUTPUT" | grep "Time:" | awk '{print $2}')
-    UPD=$(echo "$OUTPUT" | grep "M update/s" | awk '{print $3}')
-    echo "$size,CPU,$ITER,$TIME,$UPD" >> $RESULT_FILE
-    
-    # GPU
-    echo "  GPU..."
-    OUTPUT=$(./heat_solver --size $size --precision $PRECISION 2>/dev/null)
-    ITER=$(echo "$OUTPUT" | grep "Iterations:" | awk '{print $2}')
-    TIME=$(echo "$OUTPUT" | grep "Time:" | awk '{print $2}')
-    UPD=$(echo "$OUTPUT" | grep "M update/s" | awk '{print $3}')
-    echo "$size,GPU,$ITER,$TIME,$UPD" >> $RESULT_FILE
-    
-    echo ""
+echo ""
+echo "GPU"
+./heat_gpu \
+    --size ${SIZE} \
+    --eps ${EPS} \
+    --iter ${MAX_ITER} \
+| grep -E "Iterations|Final error|Time"
+
 done
-
-echo "Benchmark complete. Results saved to $RESULT_FILE"
-echo ""
-echo "Summary:"
-echo "========"
-cat $RESULT_FILE
