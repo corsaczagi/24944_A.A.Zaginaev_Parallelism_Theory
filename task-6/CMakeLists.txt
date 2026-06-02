@@ -1,67 +1,26 @@
-cmake_minimum_required(VERSION 3.18)
-
+cmake_minimum_required(VERSION 3.15)
 project(HeatEquationSolver LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# Устанавливаем компилятор NVIDIA HPC SDK
+set(CMAKE_CXX_COMPILER "pgc++")
+set(CMAKE_CXX_FLAGS "-fast -O3 -Minfo=all")
 
+# Находим Boost
 find_package(Boost REQUIRED COMPONENTS program_options)
 
-#
-# HOST
-#
-add_executable(heat_host main.cpp)
+# Создаём исполняемый файл
+add_executable(heat_solver main.cpp)
+target_link_libraries(heat_solver ${Boost_LIBRARIES})
 
-target_compile_options(
-    heat_host
-    PRIVATE
-    -O3
-    -acc=host
-    -Minfo=all
-)
+# Цели для разных режимов OpenACC
+add_custom_target(build_cpu
+    COMMAND ${CMAKE_COMMAND} -E env CXXFLAGS="-acc=host -Minfo=all" ${CMAKE_MAKE_PROGRAM}
+    COMMENT "Building for CPU (host)")
 
-target_link_libraries(
-    heat_host
-    PRIVATE
-    Boost::program_options
-)
+add_custom_target(build_multicore
+    COMMAND ${CMAKE_COMMAND} -E env CXXFLAGS="-acc=multicore -Minfo=all" ${CMAKE_MAKE_PROGRAM}
+    COMMENT "Building for multicore CPU")
 
-#
-# MULTICORE
-#
-add_executable(heat_multicore main.cpp)
-
-target_compile_options(
-    heat_multicore
-    PRIVATE
-    -O3
-    -acc=multicore
-    -Minfo=all
-)
-
-target_link_libraries(
-    heat_multicore
-    PRIVATE
-    Boost::program_options
-)
-
-#
-# GPU
-#
-add_executable(heat_gpu main.cpp)
-
-target_compile_options(
-    heat_gpu
-    PRIVATE
-    -O3
-    -acc=gpu
-    -Minfo=all
-)
-
-target_link_libraries(
-    heat_gpu
-    PRIVATE
-    Boost::program_options
-)
-
-message(STATUS "Compiler: ${CMAKE_CXX_COMPILER}")
+add_custom_target(build_gpu
+    COMMAND ${CMAKE_COMMAND} -E env CXXFLAGS="-acc=gpu -Minfo=all" ${CMAKE_MAKE_PROGRAM}
+    COMMENT "Building for GPU")
